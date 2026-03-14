@@ -51,7 +51,7 @@ Time-aware proactive behavior. At 6:45 AM, Kit pre-compiles a morning brief with
 
 #### 5. Ambient Learning (`ambient.py`, 14KB)
 Records interaction patterns: timing, task success rates, model performance, error frequency. Extracts Jarvis-style situational awareness recommendations:
-- "Andrew typically starts around 07:15. Pre-compile context by 06:45."
+- "User typically starts around 07:15. Pre-compile context by 06:45."
 - "Task queue worker has 100% success rate over 5 tracked runs."
 - "Recurring timeout pattern detected — consider prompt simplification."
 
@@ -80,12 +80,12 @@ No API keys needed. Pure public JSON endpoints. Zero cost.
 SQLite-backed knowledge graph with entities, relationships, observations, and BFS traversal. Instead of grepping flat files, Kit reasons about connections:
 
 ```
-Query: "What connects Kit to Gary?"
-Path:  Kit --operates--> Andrew --built--> Prospectus --champions--> Gary
+Query: "What connects my agent to the VP?"
+Path:  Kit --serves--> User --built--> SalesApp --pitched_to--> VP
 
-Query: "Prospectus connections?"
-Result: 7 relationships across 6 entities (Andrew, Gary, Adam, 
-        Salesforce, Anthropic, AgentForce)
+Query: "SalesApp connections?"
+Result: 7 relationships across 6 entities (User, VP, Architect, 
+        CRM Platform, AI Provider, Competitor Tool)
 ```
 
 Seeded with 18 entities, 22 relationships, 8 observations. the user's entire professional context in a queryable graph that grows automatically.
