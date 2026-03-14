@@ -88,7 +88,7 @@ Result: 7 relationships across 6 entities (User, VP, Architect,
         CRM Platform, AI Provider, Competitor Tool)
 ```
 
-Seeded with 18 entities, 22 relationships, 8 observations. the user's entire professional context in a queryable graph that grows automatically.
+Seeded with 18 entities, 22 relationships, 8 observations. Your entire professional context in a queryable graph that grows automatically.
 
 #### 10. Multi-Modal Vision (`multimodal.py` + Qwen2.5-VL 7B)
 Local vision model processes images dropped into an inbox folder. Tested on a benchmark chart — correctly identified data points, percentages, comparison metrics, and chart structure in **11.7 seconds average round-trip** (Qwen2.5-VL 7B on RTX 5070, Q4 quantization).
@@ -281,10 +281,12 @@ graph TD
 
 ---
 
----
-
 ### Get Involved
 
 **Repo (MIT License):** [github.com/Kadatha/kit-daemon](https://github.com/Kadatha/kit-daemon)
 
 Feedback, forks, and PRs welcome. If you're building proactive agents on personal hardware, let's talk.
+
+*Built by Andrew Lovick and Kit 🦊 — March 2026*
+
+*"Not just agents with skills, but agents with skills that improve over time — running on hardware you own, learning from data that never leaves your machine."*
