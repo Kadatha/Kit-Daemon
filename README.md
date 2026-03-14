@@ -286,6 +286,7 @@ Future versions will include formal security audits (e.g., Bandit for Python vul
 **Research & Inspiration:**
 - [IBM — Trajectory-Informed Memory Generation](https://arxiv.org/abs/2603.10600) (arXiv 2603.10600) — Decision attribution framework and 3-level causality analysis
 - [greyhaven-ai/autocontext](https://github.com/greyhaven-ai/autocontext) — Curator quality gate pattern and Coach→Playbook aggregation concept
+- [Karpathy/autoresearch](https://github.com/karpathy/autoresearch) — Autonomous experimentation on personal hardware; the ethos of "one GPU, let the agent iterate"
 - [OpenJarvis](https://github.com/open-jarvis/OpenJarvis) — Trace-based learning architecture (cherry-picked: trace collection, SQLite store, task classification)
 - [cognee](https://github.com/topoteretes/cognee) — Skill evolution pattern (lighter file-based implementation)
 
