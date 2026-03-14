@@ -278,7 +278,6 @@ graph TD
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — local speech-to-text
 - [ElevenLabs](https://elevenlabs.io) — text-to-speech
 - Python asyncio + watchdog + SQLite
-- One Saturday morning and a refusal to accept "good enough" ☕
 
 ---
 
@@ -286,10 +285,6 @@ graph TD
 
 ### Get Involved
 
-**Repo (MIT License):** [github.com/YOUR_GITHUB_USERNAME/kit-daemon](https://github.com/YOUR_GITHUB_USERNAME/kit-daemon)
+**Repo (MIT License):** [github.com/Kadatha/kit-daemon](https://github.com/Kadatha/kit-daemon)
 
 Feedback, forks, and PRs welcome. If you're building proactive agents on personal hardware, let's talk.
-
-*Built by the user and Kit 🦊 — March 14, 2026*
-
-*"Not just agents with skills, but agents with skills that improve over time — running on hardware you own, learning from data that never leaves your machine."*
