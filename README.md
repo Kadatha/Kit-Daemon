@@ -7,7 +7,7 @@ Every AI assistant today has the same fundamental flaw: it's a brain in a jar. I
 
 With local models like Qwen 3.5 enabling 35B parameters on consumer GPUs, the hardware barrier is gone — yet assistants remain passive. They wait for prompts. The models are ready. The architecture wasn't. Kit Daemon bridges that gap.
 
-We wanted Jarvis — but running on hardware we own, learning from data that never leaves our machine, improving without being told to, and costing nothing to operate.
+We wanted Jarvis — but running on hardware we own, learning from data that never leaves our machine, improving without being told to, and costing nothing to operate — because the future of AI should belong to the user, not the cloud provider.
 
 ### What We Built
 
@@ -21,6 +21,8 @@ Zero cloud API cost on the happy path. 100% local inference via [Ollama](https:/
 **Smoke test:** 35/36 passing  
 **System overhead:** <3% CPU idle, ~200MB RAM, zero GPU when not inferring  
 **Metrics source:** 48-hour production run on the hardware above, simulating real-world usage with 100+ interactions. All dependencies pinned in `requirements.txt` for reproducibility.
+
+**Mission:** Turn passive chat into an always-on partner that anticipates needs, heals itself, and gets smarter over time — all locally.
 
 ---
 
@@ -107,7 +109,7 @@ Bidirectional voice communication:
 - **Kit → Human:** ElevenLabs TTS sends voice messages via Telegram
 - **Human → Kit:** faster-whisper (CPU, int8) transcribes voice memos locally
 
-**Round-trip verified:** Kit spoke a message via TTS → Whisper transcribed it back with 98% word accuracy (17-second audio clip, Whisper base model on CPU int8, ~8 seconds processing). Supports .mp3, .wav, .m4a, .ogg, .opus, .flac, .webm. Live Telegram voice memos transcribed successfully in production.
+**Round-trip verified:** Kit spoke a message via TTS → Whisper transcribed it back with 98% word accuracy (17-second audio clip, Whisper base model on CPU int8, ~8 seconds processing). Supports .mp3, .wav, .m4a, .ogg, .opus, .flac, .webm. Production-tested on real Telegram voice memos.
 
 Your voice never leaves your machine.
 
@@ -128,7 +130,7 @@ The learning engine runs every 6 hours:
 2. **Degradation detection:** Compares last 24h vs previous 24h. Alerts on 15%+ drops.
 3. **Actionable recommendations:** Latency warnings, quality alerts, prompt review suggestions.
 
-Cherry-picked from OpenJarvis: trace storage pattern, task classification, routing optimization. Skipped: LoRA training (GPU contention with Ollama), event bus (overkill), Rust bridge (unnecessary at this scale).
+Cherry-picked trace storage and routing optimization from OpenJarvis — implemented lighter with SQLite-only storage to avoid GPU contention. Skipped: LoRA training, event bus, Rust bridge (unnecessary at this scale).
 
 ---
 
@@ -218,6 +220,8 @@ graph TD
 - Skill evolution proposes bad amendment → handled: human approval gate + rollback
 - Trace learning recommends wrong model → handled: minimum sample threshold (3+ runs) + eval gate
 - Unbounded state growth → handled: traced_runs capped at 200, JSONL files rotate daily
+
+Future versions will include formal security audits (e.g., Bandit for Python vulnerability scanning) to support enterprise deployment.
 
 ---
 
