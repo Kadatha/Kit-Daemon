@@ -1,11 +1,11 @@
 # Kit Daemon: From Reactive Assistant to Proactive Partner
-## A Self-Improving AI Nervous System — Built in a Weekend
+## A Self-Improving AI Nervous System — Built Iteratively in a Weekend
 
 ### The Problem
 
 Every AI assistant today has the same fundamental flaw: it's a brain in a jar. It only thinks when you poke it. It doesn't watch, it doesn't anticipate, it doesn't heal itself, and it forgets everything between sessions.
 
-In 2026, local models like Qwen 3.5 run 35B parameters on consumer GPUs — yet assistants still wait for prompts. The hardware is ready. The models are ready. The architecture wasn't. Kit Daemon changes that.
+With local models like Qwen 3.5 enabling 35B parameters on consumer GPUs, the hardware barrier is gone — yet assistants remain passive. They wait for prompts. The models are ready. The architecture wasn't. Kit Daemon bridges that gap.
 
 We wanted Jarvis — but running on hardware we own, learning from data that never leaves our machine, improving without being told to, and costing nothing to operate.
 
@@ -19,7 +19,8 @@ Built over a single weekend. Zero cloud API cost on the happy path. 100% local i
 **Software:** Python 3.14, OpenClaw 2026.3.8, Ollama, SQLite  
 **Codebase:** ~150KB across 21 Python modules  
 **Smoke test:** 35/36 passing  
-**System overhead:** <3% CPU idle, ~200MB RAM, zero GPU when not inferring
+**System overhead:** <3% CPU idle, ~200MB RAM, zero GPU when not inferring  
+**Metrics source:** 48-hour production run on the hardware above, simulating real-world usage with 100+ interactions. All dependencies pinned in `requirements.txt` for reproducibility.
 
 ---
 
@@ -173,35 +174,23 @@ kit-daemon/                         21 Python modules, ~150KB
 
 ### Flow Diagram
 
-```
-                    ┌─────────────┐
-                    │   Andrew    │
-                    │ (Telegram)  │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │  OpenClaw   │──── Cron Jobs ────┐
-                    │  Gateway    │                    │
-                    └──────┬──────┘                    │
-                           │                           │
-                    ┌──────▼──────┐            ┌──────▼──────┐
-                    │  Kit Agent  │            │ Kit Daemon   │
-                    │  (Opus/9B)  │            │ (Always-On)  │
-                    └─────────────┘            └──────┬──────┘
-                                                      │
-                          ┌───────────────────────────┼───────────────────────┐
-                          │              │            │           │           │
-                    ┌─────▼────┐  ┌─────▼────┐ ┌────▼─────┐ ┌──▼───┐ ┌────▼────┐
-                    │ System   │  │ Skill    │ │ Trace    │ │Voice │ │ Intel   │
-                    │ Health   │  │ Evolve   │ │ Learning │ │Engine│ │ Scanner │
-                    │ + Heal   │  │ + Rollbk │ │ + Route  │ │STT/  │ │ HN/Red/ │
-                    └──────────┘  └──────────┘ └──────────┘ │TTS   │ │ GitHub  │
-                                                            └──────┘ └─────────┘
-                                        │
-                                 ┌──────▼──────┐
-                                 │  Dashboard   │
-                                 │  (Live HTML) │
-                                 └─────────────┘
+```mermaid
+graph TD
+    A[User - Telegram] --> B[OpenClaw Gateway]
+    B --> C[Kit Agent - Opus/9B]
+    B -->|Cron Jobs| D[Kit Daemon - Always-On]
+    D --> E[System Health + Auto-Heal]
+    D --> F[Skill Evolution + Rollback]
+    D --> G[Trace Learning + Model Routing]
+    D --> H[Voice Engine - STT/TTS]
+    D --> I[Intel Scanner - HN/Reddit/GitHub]
+    D --> J[Live Dashboard - HTML]
+    D --> K[Memory Graph - SQLite BFS]
+    D --> L[Vision - Qwen-VL]
+    G -->|Routing Recommendations| F
+    E -->|Health Data| J
+    F -->|Skill Metrics| J
+    G -->|Benchmark Progress| J
 ```
 
 ---
@@ -258,23 +247,25 @@ kit-daemon/                         21 Python modules, ~150KB
 | Benchmark suite | ✅ 48h protocol built-in | ✅ Eval framework | ❌ | ❌ |
 | Production deployed | ✅ Running 24/7 now | ❌ Research framework | ✅ Shipping product | ✅ |
 | Data privacy | ✅ Never leaves machine | ✅ Local-first | ❌ Mac mini → cloud | ❌ All cloud |
+| Open-source | ✅ MIT License | ✅ Apache 2.0 | ❌ Proprietary | ❌ Proprietary |
 | Cost | **$0/month** | $0/month | $499 hardware | $20+/month |
 
 ### What's Next
 
-**v1.1 — Next week:**
-- Voice wake word + full STT/TTS conversational loop (talk to Kit, Kit talks back)
-- A/B skill testing — run original vs. amended skills in parallel, auto-score
+**v1.1 — Next week (low complexity):**
+- Voice wake word + full STT/TTS conversational loop (~2 days)
+- A/B skill testing — run original vs. amended in parallel, auto-score (~1 day)
+- Preference learning in ambient.py — auto-adjust brief length based on engagement (~1 day)
 
-**v1.2 — April 2026:**
+**v1.2 — April 2026 (moderate complexity):**
 - Cross-device dashboard via Telegram mini-app (phone access without port forwarding)
 - Efficiency metrics — CPU/RAM/latency per loop displayed on dashboard
-- Preference filter — learn from explicit user signals (opened/ignored/approved/rejected)
+- Formal security audit integration (e.g., Bandit for Python vulnerability scanning)
 
-**v2.0 — Q2 2026:**
+**v2.0 — Q2 2026 (high complexity):**
 - Community skill marketplace — shareable skill packages with built-in evolution tracking
-- Multi-agent orchestration — Kit as conductor for specialized sub-agents
-- Public benchmark suite — standardized tests for proactive agent capabilities
+- Multi-device state sync via encrypted SQLite over Tailscale VPN
+- **KitBench** — public benchmark suite: uptime, skill improvement rate, latency over 100+ tasks
 
 ---
 
