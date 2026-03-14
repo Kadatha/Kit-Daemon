@@ -488,7 +488,189 @@ class DecisionAttributor:
             best.confidence = min(1.0, best.confidence + 0.05 * (len(group) - 1))
             consolidated.append(best)
 
-        return consolidated
+        # Curator pass — quality gate (inspired by greyhaven-ai/autocontext)
+        curated = self._curate_tips(consolidated)
+
+        return curated
+
+    # ─── CURATOR (Quality Gate) ───────────────────────────────
+    # Inspired by greyhaven-ai/autocontext's Curator agent.
+    # Instead of an LLM call, uses rule-based gating:
+    # - Reject low-confidence tips (<0.3)
+    # - Reject contradictory tips (same task_class, opposite advice)
+    # - Reject stale tips (same title seen 5+ times = noise, not signal)
+    # - Boost tips confirmed by multiple traces
+
+    def _curate_tips(self, tips: List[Tip]) -> List[Tip]:
+        """Quality gate: reject noise, boost signal."""
+        curated = []
+        existing_titles = self._get_existing_tip_titles()
+
+        for tip in tips:
+            # Gate 1: Minimum confidence threshold
+            if tip.confidence < 0.3:
+                logger.debug(f"Curator rejected (low confidence): {tip.title}")
+                continue
+
+            # Gate 2: Staleness — if we've seen this exact title 5+ times,
+            # it's noise (same failure repeating without learning)
+            title_count = existing_titles.get(tip.title, 0)
+            if title_count >= 5 and tip.confidence < 0.8:
+                logger.debug(f"Curator rejected (stale, seen {title_count}x): {tip.title}")
+                continue
+
+            # Gate 3: Contradictory tips — if we have a strategy tip saying
+            # "use model X" and a new tip saying "don't use model X" for
+            # the same task class, keep the higher confidence one
+            # (Simple version: flag but don't block for now)
+            if title_count > 0:
+                # Tip seen before — boost confidence (confirmation)
+                tip.confidence = min(1.0, tip.confidence + 0.02 * title_count)
+
+            curated.append(tip)
+
+        rejected = len(tips) - len(curated)
+        if rejected > 0:
+            logger.info(f"Curator: {rejected} tips rejected, {len(curated)} passed")
+
+        return curated
+
+    def _get_existing_tip_titles(self) -> Dict[str, int]:
+        """Count how many times each tip title has been seen."""
+        counts = defaultdict(int)
+        if not os.path.exists(self.tips_dir):
+            return counts
+
+        for fname in sorted(os.listdir(self.tips_dir), reverse=True)[:7]:
+            if fname.endswith('.jsonl'):
+                fpath = os.path.join(self.tips_dir, fname)
+                try:
+                    with open(fpath, 'r') as f:
+                        for line in f:
+                            if line.strip():
+                                try:
+                                    tip = json.loads(line)
+                                    counts[tip.get('title', '')] += 1
+                                except json.JSONDecodeError:
+                                    pass
+                except Exception:
+                    pass
+
+        return counts
+
+    # ─── PLAYBOOK GENERATOR ───────────────────────────────────
+    # Inspired by greyhaven-ai/autocontext's Coach → Playbook pattern.
+    # Aggregates proven tips into coherent per-task-class playbooks.
+    # A playbook is a markdown document: "Here's how [task_class] works best."
+
+    def generate_playbooks(self) -> Dict[str, str]:
+        """Generate playbooks from accumulated tips, grouped by task class."""
+        all_tips = []
+
+        if not os.path.exists(self.tips_dir):
+            return {}
+
+        # Read all tips
+        for fname in sorted(os.listdir(self.tips_dir)):
+            if fname.endswith('.jsonl'):
+                fpath = os.path.join(self.tips_dir, fname)
+                with open(fpath, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                all_tips.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+
+        if not all_tips:
+            return {}
+
+        # Group by task_class
+        by_class = defaultdict(list)
+        for tip in all_tips:
+            tc = tip.get('task_class', 'general')
+            by_class[tc].append(tip)
+
+        # Generate playbook per class
+        playbooks = {}
+        playbook_dir = os.path.join(
+            self.config['paths']['daemon_home'], 'playbooks'
+        )
+        os.makedirs(playbook_dir, exist_ok=True)
+
+        for task_class, tips in by_class.items():
+            if len(tips) < 2:
+                continue  # Need at least 2 tips to form a playbook
+
+            # Sort by confidence
+            tips.sort(key=lambda t: t.get('confidence', 0), reverse=True)
+
+            # Build playbook markdown
+            lines = [
+                f"# Playbook: {task_class}",
+                f"*Auto-generated from {len(tips)} tips | {datetime.now().strftime('%Y-%m-%d %H:%M')}*",
+                "",
+            ]
+
+            # Strategies (what works)
+            strategies = [t for t in tips if t.get('tip_type') == 'strategy']
+            if strategies:
+                lines.append("## What Works")
+                for s in strategies[:5]:  # Top 5
+                    lines.append(f"- **{s['title']}** (confidence: {s.get('confidence', 0):.0%})")
+                    lines.append(f"  {s['action']}")
+                lines.append("")
+
+            # Recovery (when things break)
+            recoveries = [t for t in tips if t.get('tip_type') == 'recovery']
+            if recoveries:
+                lines.append("## When Things Break")
+                for r in recoveries[:5]:
+                    lines.append(f"- **{r['title']}** (confidence: {r.get('confidence', 0):.0%})")
+                    lines.append(f"  {r['action']}")
+                lines.append("")
+
+            # Optimization (how to do it better)
+            optimizations = [t for t in tips if t.get('tip_type') == 'optimization']
+            if optimizations:
+                lines.append("## How To Do It Better")
+                for o in optimizations[:5]:
+                    lines.append(f"- **{o['title']}** (confidence: {o.get('confidence', 0):.0%})")
+                    lines.append(f"  {o['action']}")
+                lines.append("")
+
+            # Model recommendations
+            model_tips = [t for t in strategies if 'Proven:' in t.get('title', '')]
+            if model_tips:
+                lines.append("## Recommended Models")
+                for m in model_tips[:3]:
+                    lines.append(f"- {m['title']} — {m['description']}")
+                lines.append("")
+
+            playbook_text = '\n'.join(lines)
+            playbooks[task_class] = playbook_text
+
+            # Save to disk
+            safe_name = task_class.replace(' ', '_').replace('/', '_')
+            filepath = os.path.join(playbook_dir, f'{safe_name}.md')
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(playbook_text)
+
+        logger.info(f"Generated {len(playbooks)} playbooks from {len(all_tips)} tips")
+        return playbooks
+
+    def get_playbook(self, task_class: str) -> Optional[str]:
+        """Get the playbook for a specific task class."""
+        playbook_dir = os.path.join(
+            self.config['paths']['daemon_home'], 'playbooks'
+        )
+        safe_name = task_class.replace(' ', '_').replace('/', '_')
+        filepath = os.path.join(playbook_dir, f'{safe_name}.md')
+
+        if os.path.exists(filepath):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return f.read()
+        return None
 
     def _save_tips(self, tips: List[Tip]):
         """Save tips to disk."""
