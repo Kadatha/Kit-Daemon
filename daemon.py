@@ -1,0 +1,516 @@
+﻿"""
+Kit Daemon — Main Entry Point
+Always-on nervous system for Kit. Coordinates all modules.
+
+Usage:
+    python daemon.py          # Start the daemon
+    python daemon.py --test   # Run smoke test and exit
+"""
+import asyncio
+import json
+import logging
+import logging.handlers
+import os
+import signal
+import sys
+from datetime import datetime
+
+# Setup logging first
+def setup_logging(log_file):
+    """Configure logging with rotation."""
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+    formatter = logging.Formatter(
+        '%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # File handler with rotation (5MB, keep 3)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8'
+    )
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+
+    root_logger = logging.getLogger('kit-daemon')
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
+    return root_logger
+
+
+def load_config():
+    """Load daemon configuration."""
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+
+class KitDaemon:
+    def __init__(self):
+        self.config = load_config()
+        self.logger = setup_logging(self.config['log_file'])
+        self.running = False
+
+        # Initialize modules
+        from state import StateManager
+        from comms import CommsManager
+        from system import SystemMonitor
+        from health import HealthMonitor
+        from watchers import WatcherManager
+        from anticipation import AnticipationEngine
+        from learning import LearningEngine
+        from skill_evolution import SkillEvolutionEngine
+        from workflows import WorkflowEngine
+        from ambient import AmbientLearning
+        from dashboard import generate_dashboard
+        from orchestrator import Orchestrator
+        from intelligence import IntelligenceEngine
+        from memory_graph import MemoryGraph, seed_initial_graph
+        from multimodal import MultiModalProcessor
+        from voice import VoiceEngine
+        from trace_learning import TraceStore, TraceCollector, LearningEngine as TraceLearningEngine
+        from benchmark import BenchmarkProtocol
+
+        self.state = StateManager(self.config['state_file'])
+        self.comms = CommsManager(self.config, self.state)
+        self.system = SystemMonitor(self.config, self.state, self.comms)
+        self.skills = SkillEvolutionEngine(self.config, self.state, self.comms)
+        self.health = HealthMonitor(self.config, self.state, self.comms, self.skills)
+        self.watchers = WatcherManager(self.config, self.on_file_event)
+        self.anticipation = AnticipationEngine(
+            self.config, self.state, self.comms, self._queue_workflow
+        )
+        self.learning = LearningEngine(self.config, self.state)
+        self.ambient = AmbientLearning(self.config, self.state)
+        self.orchestrator = Orchestrator(
+            self.config, self.state, self.comms, self.skills, self.ambient
+        )
+        self.intel = IntelligenceEngine(self.config, self.state, self.comms)
+        self.graph = MemoryGraph(self.config)
+
+        # Seed graph if empty
+        stats = self.graph.get_stats()
+        if stats['total_entities'] == 0:
+            seed_initial_graph(self.graph)
+
+        self.multimodal = MultiModalProcessor(self.config, self.state, self.comms)
+        self.voice = VoiceEngine(self.config, self.state, self.comms)
+
+        # Trace-based learning (inspired by OpenJarvis)
+        trace_db = os.path.join(self.config['paths']['daemon_home'], 'traces.db')
+        self.trace_store = TraceStore(trace_db)
+        self.trace_collector = TraceCollector(self.trace_store)
+        self.learning_engine = TraceLearningEngine(self.trace_store, self.config)
+        self.benchmark = BenchmarkProtocol(self.trace_store, self.config)
+        self.generate_dashboard = generate_dashboard
+        self.workflow_engine = WorkflowEngine(
+            self.config, self.state, self.comms, self.skills
+        )
+        self._pending_workflows = asyncio.Queue()
+
+        self.logger.info("Kit Daemon initialized")
+
+    def on_file_event(self, event_type, path):
+        """Callback for file system events. Triggers workflows."""
+        self.logger.info(f"File event: {event_type} — {path}")
+
+        context = {'file_path': path, 'event_type': event_type}
+
+        if event_type == 'urgent_task':
+            self._queue_workflow('urgent-task', context)
+        elif event_type == 'uw_export':
+            self._queue_workflow('uw-csv-process', context)
+        elif event_type == 'new_memory':
+            self._queue_workflow('memory-reindex', context)
+
+    def _queue_workflow(self, workflow_id, context):
+        """Queue a workflow for async execution."""
+        try:
+            self._pending_workflows.put_nowait((workflow_id, context))
+        except Exception as e:
+            self.logger.error(f"Failed to queue workflow {workflow_id}: {e}")
+
+    async def system_check_loop(self):
+        """Periodic system health checks."""
+        interval = self.config['intervals']['system_check_seconds']
+        while self.running:
+            try:
+                results = self.system.check_all()
+                self.logger.debug(f"System check: {json.dumps({k: v.get('status', 'unknown') for k, v in results.items()})}")
+                # Feed into ambient learning
+                for svc, result in results.items():
+                    self.ambient.record_interaction('system_check', {
+                        'service': svc,
+                        'status': result.get('status', 'unknown'),
+                        'success': result.get('status') == 'healthy',
+                    })
+            except Exception as e:
+                self.logger.error(f"System check loop error: {e}")
+            await asyncio.sleep(interval)
+
+    async def health_check_loop(self):
+        """Periodic cron health checks."""
+        interval = self.config['intervals']['health_check_seconds']
+        while self.running:
+            try:
+                cron_health = self.health.check_cron_health()
+                worker_status = self.health.check_worker_output()
+                stale = self.orchestrator.check_stale_tasks()
+                self.logger.debug(f"Cron health: {cron_health.get('status', 'unknown')}, Worker: {worker_status}")
+
+                # Record cron runs as traces for the learning engine
+                try:
+                    for run in cron_health.get('recent_runs', []):
+                        run_id = run.get('jobId', '') + '_' + str(run.get('ts', ''))
+                        if run_id not in self.state.get('traced_runs', set()):
+                            self.trace_collector.record_cron_run(
+                                cron_id=run.get('jobId', ''),
+                                cron_name=run.get('name', 'unknown'),
+                                model=run.get('model', 'unknown'),
+                                result_summary=run.get('summary', '')[:200],
+                                outcome='success' if run.get('status') == 'ok' else 'failure',
+                                duration=run.get('duration', 0),
+                            )
+                            traced = self.state.get('traced_runs', set())
+                            if isinstance(traced, list):
+                                traced = set(traced)
+                            traced.add(run_id)
+                            # Keep last 200 to avoid unbounded growth
+                            if len(traced) > 200:
+                                traced = set(list(traced)[-200:])
+                            self.state.set('traced_runs', list(traced))
+                except Exception as e:
+                    self.logger.debug(f"Trace recording: {e}")
+            except Exception as e:
+                self.logger.error(f"Health check loop error: {e}")
+            await asyncio.sleep(interval)
+
+    async def anticipation_loop(self):
+        """Periodic anticipation engine checks."""
+        interval = self.config['intervals']['anticipation_check_seconds']
+        while self.running:
+            try:
+                self.anticipation.check_schedule()
+            except Exception as e:
+                self.logger.error(f"Anticipation loop error: {e}")
+            await asyncio.sleep(interval)
+
+    async def workflow_loop(self):
+        """Process queued workflows."""
+        while self.running:
+            try:
+                # Wait for a workflow with timeout (so we can check self.running)
+                try:
+                    workflow_id, context = await asyncio.wait_for(
+                        self._pending_workflows.get(), timeout=5
+                    )
+                    result = await self.workflow_engine.trigger(workflow_id, context)
+                    if result:
+                        self.logger.info(
+                            f"Workflow '{workflow_id}' completed: "
+                            f"{'success' if result['success'] else 'failed'} "
+                            f"({result['duration_seconds']}s)"
+                        )
+                except asyncio.TimeoutError:
+                    pass  # No workflows queued, loop back
+            except Exception as e:
+                self.logger.error(f"Workflow loop error: {e}")
+                await asyncio.sleep(1)
+
+    async def skill_evolution_loop(self):
+        """Periodic skill performance inspection."""
+        while self.running:
+            try:
+                issues = self.skills.run_inspection_sweep()
+                if issues:
+                    self.logger.info(f"Skill inspection found {len(issues)} issue(s)")
+                # Save dashboard to scratch for Kit to read
+                dashboard = self.skills.get_dashboard()
+                dash_file = os.path.join(
+                    self.config['paths']['workspace'], 'scratch', 'skill-dashboard.json'
+                )
+                os.makedirs(os.path.dirname(dash_file), exist_ok=True)
+                with open(dash_file, 'w', encoding='utf-8') as f:
+                    json.dump(dashboard, f, indent=2)
+            except Exception as e:
+                self.logger.error(f"Skill evolution loop error: {e}")
+            await asyncio.sleep(3600)  # Every hour
+
+    async def dashboard_loop(self):
+        """Regenerate dashboard periodically."""
+        while self.running:
+            try:
+                self.generate_dashboard(self.config)
+            except Exception as e:
+                self.logger.error(f"Dashboard generation error: {e}")
+            await asyncio.sleep(60)  # Every minute
+
+    async def intelligence_loop(self):
+        """Periodic intelligence scan of external sources."""
+        # Wait 2 minutes before first scan (let daemon settle)
+        await asyncio.sleep(120)
+        while self.running:
+            try:
+                items = self.intel.scan_all_sources()
+                if items:
+                    self.logger.info(f"Intel scan: {len(items)} significant items")
+                    # Compile digest
+                    self.intel.compile_digest_markdown()
+            except Exception as e:
+                self.logger.error(f"Intelligence scan error: {e}")
+            # Scan every 4 hours
+            await asyncio.sleep(3600 * int(self.config['intervals'].get('external_watch_hours', 4)))
+
+    async def ambient_analysis_loop(self):
+        """Run ambient pattern analysis periodically."""
+        while self.running:
+            try:
+                patterns = self.ambient.analyze_patterns()
+                if patterns.get('recommendations'):
+                    self.logger.info(
+                        f"Ambient analysis: {len(patterns['recommendations'])} recommendations"
+                    )
+            except Exception as e:
+                self.logger.error(f"Ambient analysis error: {e}")
+            await asyncio.sleep(3600 * 4)  # Every 4 hours
+
+    async def trace_learning_loop(self):
+        """Run trace-based learning cycle periodically."""
+        # Wait for traces to accumulate
+        await asyncio.sleep(3600)  # First cycle after 1 hour
+        while self.running:
+            try:
+                result = self.learning_engine.run_learning_cycle()
+                status = result.get('status', 'unknown')
+                recs = result.get('recommendations', [])
+                routing = result.get('routing_updates', {})
+                self.logger.info(
+                    f"Trace learning: {status}, {len(recs)} recommendations, "
+                    f"{len(routing)} routing updates, "
+                    f"{result.get('trace_count', 0)} total traces"
+                )
+                if recs:
+                    for rec in recs:
+                        self.logger.info(f"  Recommendation: [{rec['priority']}] {rec['action']}")
+            except Exception as e:
+                self.logger.error(f"Trace learning error: {e}")
+            await asyncio.sleep(3600 * 6)  # Every 6 hours
+
+    async def metrics_loop(self):
+        """Save metrics periodically."""
+        while self.running:
+            try:
+                self.learning.save_metrics()
+                self.state.save()
+            except Exception as e:
+                self.logger.error(f"Metrics save error: {e}")
+            await asyncio.sleep(300)  # Every 5 minutes
+
+    async def run(self):
+        """Main daemon loop."""
+        self.running = True
+        self.state.set('started_at', datetime.now().isoformat())
+        self.state.save()
+
+        # Start file watchers (sync, runs in background thread)
+        self.watchers.start()
+
+        # Count monitored paths
+        n_queues = len(self.config['watch_paths']['task_queues'])
+        self.logger.info(
+            f"Kit daemon online. Monitoring {n_queues} task queues, "
+            f"UW exports, memory dir, system health."
+        )
+
+        # Start async loops
+        tasks = [
+            asyncio.create_task(self.system_check_loop()),
+            asyncio.create_task(self.health_check_loop()),
+            asyncio.create_task(self.anticipation_loop()),
+            asyncio.create_task(self.workflow_loop()),
+            asyncio.create_task(self.skill_evolution_loop()),
+            asyncio.create_task(self.dashboard_loop()),
+            asyncio.create_task(self.intelligence_loop()),
+            asyncio.create_task(self.ambient_analysis_loop()),
+            asyncio.create_task(self.trace_learning_loop()),
+            asyncio.create_task(self.metrics_loop()),
+        ]
+
+        try:
+            # Run until cancelled
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            self.logger.info("Daemon tasks cancelled")
+        finally:
+            self.shutdown()
+
+    def shutdown(self):
+        """Clean shutdown."""
+        self.running = False
+        self.logger.info("Shutting down...")
+
+        # Flush high-priority messages
+        self.comms.flush_queue(min_priority=8)
+
+        # Stop watchers
+        try:
+            self.watchers.stop()
+        except Exception as e:
+            self.logger.error(f"Watcher stop error: {e}")
+
+        # Save state
+        self.state.save()
+        self.logger.info("Kit daemon shut down. State saved.")
+
+    def smoke_test(self):
+        """Run a quick smoke test of all modules."""
+        print("=" * 60)
+        print("  Kit Daemon — Smoke Test")
+        print("=" * 60)
+
+        tests_passed = 0
+        tests_total = 0
+
+        def check(name, condition, detail=""):
+            nonlocal tests_passed, tests_total
+            tests_total += 1
+            if condition:
+                tests_passed += 1
+                print(f"  ✅ {name}")
+            else:
+                print(f"  ❌ {name} — {detail}")
+
+        # Config
+        check("Config loaded", self.config is not None)
+        check("Workspace path exists", os.path.exists(self.config['paths']['workspace']))
+        check("Feather path exists", os.path.exists(self.config['paths']['feather']))
+        check("Daemon home exists", os.path.exists(self.config['paths']['daemon_home']))
+
+        # State
+        check("State manager initialized", self.state is not None)
+        self.state.set('test_key', 'test_value')
+        check("State set/get works", self.state.get('test_key') == 'test_value')
+
+        # Comms
+        check("Comms manager initialized", self.comms is not None)
+        check("Quiet hours detection works", isinstance(self.comms.is_quiet_hours(), bool))
+        check("Priority label works", self.comms.priority_label(10) == "🚨 CRITICAL")
+
+        # System
+        check("System monitor initialized", self.system is not None)
+        disk = self.system.check_disk()
+        check("Disk check works", 'free_gb' in disk, str(disk))
+
+        ram = self.system.check_ram()
+        check("RAM check works", 'available_gb' in ram, str(ram))
+
+        gpu = self.system.check_gpu()
+        check("GPU check works", gpu.get('status') != 'error', str(gpu))
+
+        # Health
+        check("Health monitor initialized", self.health is not None)
+
+        # Watchers
+        check("Watcher manager initialized", self.watchers is not None)
+
+        # Anticipation
+        check("Anticipation engine initialized", self.anticipation is not None)
+        expected = self.anticipation.get_expected_first_message()
+        check("Expected message time works", ':' in expected, expected)
+
+        # Learning
+        check("Learning engine initialized", self.learning is not None)
+
+        # Skills
+        check("Skill evolution engine initialized", self.skills is not None)
+
+        # Memory Graph
+        check("Memory graph initialized", self.graph is not None)
+        stats = self.graph.get_stats()
+        check(f"Graph has entities: {stats['total_entities']}", stats['total_entities'] > 0)
+        check(f"Graph has relationships: {stats['total_relationships']}", stats['total_relationships'] > 0)
+        # Test traversal
+        path = self.graph.find_path('the user', 'CompetitorTool')
+        check("Graph traversal works (the user→AgentForce)", path is not None and len(path) > 1)
+        dashboard = self.skills.get_dashboard()
+        check(f"Skills tracked: {len(dashboard)}", len(dashboard) > 0)
+        # Test the observe cycle
+        tracker = self.skills.get_tracker('smoke-test', 'Smoke Test')
+        tracker.record_run(success=True, duration_seconds=0.1, model='test')
+        tracker.record_run(success=False, duration_seconds=0.2, error='test error', model='test')
+        status = tracker.get_status()
+        check("Skill tracking works", status['total_runs'] == 2 and status['success_rate'] == 0.5)
+
+        # Trace Learning
+        check("Trace store initialized", self.trace_store is not None)
+        check("Trace collector initialized", self.trace_collector is not None)
+        check("Learning engine initialized (trace)", self.learning_engine is not None)
+        # Record a test trace
+        test_trace_id = self.trace_collector.record_interaction(
+            query="Smoke test query",
+            response="Smoke test response",
+            model="test-model",
+            duration=0.5,
+            tokens=10,
+            source="smoke-test",
+        )
+        check("Trace recorded", self.trace_store.count() > 0)
+        model_stats = self.trace_store.get_model_stats()
+        check("Trace model stats work", isinstance(model_stats, dict))
+
+        # Watch paths
+        for tq in self.config['watch_paths']['task_queues']:
+            parent = os.path.dirname(tq)
+            check(f"Task queue dir exists: ...{parent[-30:]}", os.path.exists(parent))
+
+        uw_path = self.config['watch_paths']['uw_exports']
+        check(f"UW exports dir exists", os.path.exists(uw_path))
+
+        mem_path = self.config['watch_paths']['memory_dir']
+        check(f"Memory dir exists", os.path.exists(mem_path))
+
+        print()
+        print(f"  {tests_passed}/{tests_total} tests passed")
+        print("=" * 60)
+
+        if tests_passed == tests_total:
+            print("  🟢 All systems go. Ready to start.")
+        else:
+            print(f"  🟡 {tests_total - tests_passed} issue(s) found. Review above.")
+
+        return tests_passed == tests_total
+
+
+def main():
+    if '--test' in sys.argv:
+        daemon = KitDaemon()
+        success = daemon.smoke_test()
+        sys.exit(0 if success else 1)
+
+    daemon = KitDaemon()
+
+    # Handle Ctrl+C gracefully
+    def handle_signal(sig, frame):
+        daemon.logger.info(f"Received signal {sig}")
+        daemon.running = False
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    # Run the daemon
+    try:
+        asyncio.run(daemon.run())
+    except KeyboardInterrupt:
+        daemon.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+

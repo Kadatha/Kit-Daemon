@@ -1,0 +1,48 @@
+{
+  "paths": {
+    "workspace": "/path/to/your/openclaw/workspace",
+    "feather": "/path/to/your/projects/feather",
+    "agent_research": "/path/to/your/projects/agent-research",
+    "prospectus_benchmark": "/path/to/your/projects/benchmarks",
+    "openclaw_home": "/path/to/your/openclaw/home",
+    "daemon_home": "/path/to/kit-daemon"
+  },
+  "watch_paths": {
+    "uw_exports": "/path/to/watched/exports",
+    "task_queues": [
+      "/path/to/workspace/TASKQUEUE.md"
+    ],
+    "memory_dir": "/path/to/workspace/memory"
+  },
+  "worker_cron_id": "your-task-worker-cron-id",
+  "cron_skill_map": {
+    "cron-id-1": "skill-name-1",
+    "cron-id-2": "skill-name-2"
+  },
+  "intervals": {
+    "health_check_seconds": 300,
+    "system_check_seconds": 60,
+    "external_watch_hours": 4,
+    "anticipation_check_seconds": 600
+  },
+  "comms": {
+    "quiet_hours_start": "23:00",
+    "quiet_hours_end": "07:00",
+    "max_messages_per_hour": 5,
+    "emergency_priority_threshold": 9,
+    "send_priority_threshold": 8,
+    "batch_priority_threshold": 5,
+    "duplicate_suppress_hours": 4
+  },
+  "health": {
+    "failure_threshold": 3,
+    "auto_heal_max_attempts": 3,
+    "min_disk_gb": 10,
+    "min_ram_gb": 4,
+    "max_vram_pct": 95
+  },
+  "timezone": "America/Chicago",
+  "ollama_url": "http://localhost:11434",
+  "log_file": "/path/to/kit-daemon/logs/kit-daemon.log",
+  "state_file": "/path/to/kit-daemon/state.json"
+}
