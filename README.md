@@ -13,7 +13,7 @@ We wanted Jarvis — but running on hardware we own, learning from data that nev
 
 **Kit Daemon** is an always-on Python daemon that gives an AI assistant (running on [OpenClaw](https://github.com/openclaw/openclaw)) a full nervous system. It runs 24/7 on local hardware with 10 concurrent async loops monitoring system health, learning from every interaction, evolving its own skills, and taking action before being asked.
 
-Built over a single weekend. Zero cloud API cost on the happy path. 100% local inference via [Ollama](https://ollama.com).
+Zero cloud API cost on the happy path. 100% local inference via [Ollama](https://ollama.com).
 
 **Hardware:** AMD Ryzen 9 3950X, NVIDIA RTX 5070 (12GB VRAM), 48GB DDR4  
 **Software:** Python 3.14, OpenClaw 2026.3.8, Ollama, SQLite  
