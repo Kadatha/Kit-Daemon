@@ -283,6 +283,12 @@ Future versions will include formal security audits (e.g., Bandit for Python vul
 - [ElevenLabs](https://elevenlabs.io) — text-to-speech
 - Python asyncio + watchdog + SQLite
 
+**Research & Inspiration:**
+- [IBM — Trajectory-Informed Memory Generation](https://arxiv.org/abs/2603.10600) (arXiv 2603.10600) — Decision attribution framework and 3-level causality analysis
+- [greyhaven-ai/autocontext](https://github.com/greyhaven-ai/autocontext) — Curator quality gate pattern and Coach→Playbook aggregation concept
+- [OpenJarvis](https://github.com/open-jarvis/OpenJarvis) — Trace-based learning architecture (cherry-picked: trace collection, SQLite store, task classification)
+- [cognee](https://github.com/topoteretes/cognee) — Skill evolution pattern (lighter file-based implementation)
+
 ---
 
 ### Get Involved
