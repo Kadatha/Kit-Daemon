@@ -1,6 +1,6 @@
-﻿"""
+"""
 Kit Daemon — Dashboard Generator
-Creates a live HTML dashboard Kit can serve or the user can open locally.
+Creates a live HTML dashboard Kit can serve or Andrew can open locally.
 Jarvis had holographic displays. Kit has a browser tab.
 """
 import json
@@ -142,6 +142,12 @@ TEMPLATE = """<!DOCTYPE html>
     {benchmark_data}
   </div>
 
+  <!-- API Costs -->
+  <div class="card">
+    <h2>💰 API Costs</h2>
+    {cost_data}
+  </div>
+
   <!-- Active Projects -->
   <div class="card">
     <h2>Active Projects</h2>
@@ -241,11 +247,62 @@ def generate_dashboard(config):
     if not workflow_html:
         workflow_html = '<div class="workflow-item" style="color:#5a6e82">No workflows today yet</div>'
 
-    # Recommendations
+    # Recommendations — pull from multiple sources
     rec_html = ""
     recs = insights.get('recommendations', [])
+
+    # Also pull tips from decision attribution
+    tips_dir = os.path.join(daemon_home, 'tips')
+    if os.path.exists(tips_dir):
+        for fname in sorted(os.listdir(tips_dir), reverse=True)[:3]:
+            if fname.endswith('.jsonl'):
+                try:
+                    with open(os.path.join(tips_dir, fname), 'r') as f:
+                        for line in f:
+                            if line.strip():
+                                tip = json.loads(line)
+                                if tip.get('confidence', 0) >= 0.5:
+                                    tip_type = tip.get('tip_type', 'strategy')
+                                    pri = 'high' if tip_type == 'recovery' else 'medium' if tip_type == 'optimization' else 'low'
+                                    recs.append({
+                                        'insight': f"[{tip_type.upper()}] {tip.get('title', '')} — {tip.get('description', '')}",
+                                        'action': tip.get('action', ''),
+                                        'priority': pri,
+                                    })
+                except (json.JSONDecodeError, IOError):
+                    pass
+
+    # Pull worker status as a recommendation
+    worker_status_path = os.path.join(workspace, 'scratch', 'worker-status.md')
+    if os.path.exists(worker_status_path):
+        try:
+            with open(worker_status_path, 'r', encoding='utf-8') as f:
+                ws_content = f.read()
+            # Extract task name
+            for line in ws_content.split('\n'):
+                if 'Task Completed' in line:
+                    task_name = line.split(':', 1)[-1].strip() if ':' in line else 'Unknown'
+                    recs.insert(0, {
+                        'insight': f'Last worker task: {task_name}',
+                        'action': 'Check scratch/ for output',
+                        'priority': 'low',
+                    })
+                    break
+        except IOError:
+            pass
+
+    # Deduplicate and limit
+    seen = set()
+    unique_recs = []
+    for r in recs:
+        key = r.get('insight', '')[:60]
+        if key not in seen:
+            seen.add(key)
+            unique_recs.append(r)
+    recs = unique_recs[:8]
+
     if recs:
-        for r in recs[:5]:
+        for r in recs:
             pri = r.get('priority', 'low')
             rec_html += f'<div class="rec {pri}">{r.get("insight", "")}<div class="action">→ {r.get("action", "")}</div></div>\n'
     else:
@@ -321,6 +378,27 @@ def generate_dashboard(config):
     if not bench_html:
         bench_html = '<div style="color:#5a6e82;padding:8px">No benchmark data yet. Traces accumulating...</div>'
 
+    # API Costs
+    cost_html = ""
+    try:
+        from cost_tracker import CostTracker
+        ct = CostTracker(config)
+        cd = ct.get_dashboard_data()
+        today_cost = cd['today_cost']
+        today_css = 'good' if today_cost < 5 else 'warn' if today_cost < 20 else 'bad'
+        cost_html += f'<div class="metric"><span class="label">Today</span><span class="value {today_css}">${today_cost:.2f}</span></div>\n'
+        cost_html += f'<div class="metric"><span class="label">This Week</span><span class="value">${cd["weekly_cost"]:.2f}</span></div>\n'
+        proj_css = 'good' if cd['projected_monthly'] < 50 else 'warn' if cd['projected_monthly'] < 150 else 'bad'
+        cost_html += f'<div class="metric"><span class="label">Projected/Month</span><span class="value {proj_css}">${cd["projected_monthly"]:.0f}</span></div>\n'
+        local_css = 'good' if cd['today_local_pct'] > 80 else 'warn' if cd['today_local_pct'] > 50 else 'bad'
+        cost_html += f'<div class="metric"><span class="label">Local %</span><span class="value {local_css}">{cd["today_local_pct"]:.0f}%</span></div>\n'
+        cost_html += f'<div class="metric"><span class="label">Cloud Calls Today</span><span class="value">{cd["today_cloud_calls"]}</span></div>\n'
+        if cd.get('top_model') and cd['top_model'] != 'none':
+            short = cd['top_model'].split('/')[-1][:20]
+            cost_html += f'<div class="metric"><span class="label">Top Spender</span><span class="value warn">{short}</span></div>\n'
+    except Exception as e:
+        cost_html = f'<div style="color:#5a6e82;padding:8px">Cost tracking initializing... ({e})</div>'
+
     # Projects
     proj_html = '<ul class="projects">'
     projects = [
@@ -343,7 +421,7 @@ def generate_dashboard(config):
     for key in ['timestamp', 'overall_status', 'overall_status_class',
                 'system_metrics', 'skill_rows', 'task_metrics',
                 'daemon_metrics', 'workflow_items', 'recommendations',
-                'benchmark_data', 'projects']:
+                'benchmark_data', 'cost_data', 'projects']:
         safe_template = safe_template.replace('{{' + key + '}}', '{' + key + '}')
 
     html = safe_template.format(
@@ -357,6 +435,7 @@ def generate_dashboard(config):
         workflow_items=workflow_html,
         recommendations=rec_html,
         benchmark_data=bench_html,
+        cost_data=cost_html,
         projects=proj_html,
     )
 
@@ -383,4 +462,3 @@ if __name__ == '__main__':
         config = json.load(f)
     path = generate_dashboard(config)
     print(f"Dashboard generated: {path}")
-
