@@ -205,6 +205,7 @@ def generate_dashboard(config):
         'feather': 'Feather Trading',
         'agent-research': 'Memory Harness',
         'prospectus_benchmark': 'Prospectus Benchmark',
+        'biostack': 'BioStack',
     }
 
     for tq_path in config.get('watch_paths', {}).get('task_queues', []):
@@ -257,7 +258,7 @@ def generate_dashboard(config):
             pass
 
     # Build per-project sections
-    projects_in_order = ['Kit Self-Improvement', 'Feather Trading', 'Memory Harness', 'Prospectus Benchmark']
+    projects_in_order = ['Kit Self-Improvement', 'Feather Trading', 'Memory Harness', 'Prospectus Benchmark', 'BioStack']
     tasks_by_project = {}
     for t in all_tasks:
         proj = t['project']

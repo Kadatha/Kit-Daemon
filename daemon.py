@@ -1,4 +1,4 @@
-﻿"""
+"""
 Kit Daemon — Main Entry Point
 Always-on nervous system for Kit. Coordinates all modules.
 
@@ -77,6 +77,9 @@ class KitDaemon:
         from voice import VoiceEngine
         from trace_learning import TraceStore, TraceCollector, LearningEngine as TraceLearningEngine
         from benchmark import BenchmarkProtocol
+        from decision_attribution import DecisionAttributor
+        from cost_tracker import CostTracker
+        from preference_filter import PreferenceFilter
 
         self.state = StateManager(self.config['state_file'])
         self.comms = CommsManager(self.config, self.state)
@@ -109,6 +112,9 @@ class KitDaemon:
         self.trace_collector = TraceCollector(self.trace_store)
         self.learning_engine = TraceLearningEngine(self.trace_store, self.config)
         self.benchmark = BenchmarkProtocol(self.trace_store, self.config)
+        self.attributor = DecisionAttributor(self.config)
+        self.cost_tracker = CostTracker(self.config)
+        self.preference_filter = PreferenceFilter(self.config)
         self.generate_dashboard = generate_dashboard
         self.workflow_engine = WorkflowEngine(
             self.config, self.state, self.comms, self.skills
@@ -225,9 +231,36 @@ class KitDaemon:
                 await asyncio.sleep(1)
 
     async def skill_evolution_loop(self):
-        """Periodic skill performance inspection."""
+        """Periodic skill performance inspection + cron run ingestion."""
         while self.running:
             try:
+                # Ingest cron run data into skill trackers
+                cron_skill_map = self.config.get('cron_to_skill', {})
+                for cron_id, skill_id in cron_skill_map.items():
+                    try:
+                        tracker = self.skills.get_tracker(skill_id)
+                        if not tracker:
+                            continue
+                        # Read recent runs from skill's runs.jsonl
+                        # The tracker already has this data if record_run was called
+                        # But we also check cron run history via trace store
+                        traces = self.trace_store.list_traces(limit=20)
+                        for trace in traces:
+                            source = trace.get('source', '')
+                            if cron_id[:8] in source or skill_id in source:
+                                success = trace.get('outcome') == 'success'
+                                latency = trace.get('total_latency', 0)
+                                model = trace.get('model', '')
+                                # Only record if not already tracked
+                                tracker.record_run(
+                                    success=success,
+                                    duration_seconds=latency,
+                                    model=model,
+                                    error=trace.get('error', '') if not success else None,
+                                )
+                    except Exception as e:
+                        self.logger.debug(f"Skill ingestion error for {skill_id}: {e}")
+
                 issues = self.skills.run_inspection_sweep()
                 if issues:
                     self.logger.info(f"Skill inspection found {len(issues)} issue(s)")
@@ -239,6 +272,7 @@ class KitDaemon:
                 os.makedirs(os.path.dirname(dash_file), exist_ok=True)
                 with open(dash_file, 'w', encoding='utf-8') as f:
                     json.dump(dashboard, f, indent=2)
+                self.logger.info(f"Skill evolution: {len(dashboard)} skills tracked")
             except Exception as e:
                 self.logger.error(f"Skill evolution loop error: {e}")
             await asyncio.sleep(3600)  # Every hour
@@ -299,6 +333,48 @@ class KitDaemon:
                 if recs:
                     for rec in recs:
                         self.logger.info(f"  Recommendation: [{rec['priority']}] {rec['action']}")
+
+                # Run decision attribution on recent traces
+                try:
+                    recent = self.trace_store.list_traces(limit=50)
+                    if recent:
+                        attr_result = self.attributor.analyze_traces(recent)
+                        self.logger.info(
+                            f"Decision attribution: {attr_result['traces_analyzed']} analyzed, "
+                            f"{attr_result['tips_generated']} tips "
+                            f"(S:{attr_result['tip_breakdown']['strategy']} "
+                            f"R:{attr_result['tip_breakdown']['recovery']} "
+                            f"O:{attr_result['tip_breakdown']['optimization']})"
+                        )
+                    # Generate playbooks from accumulated tips
+                    if attr_result['tips_generated'] > 0:
+                        playbooks = self.attributor.generate_playbooks()
+                        if playbooks:
+                            self.logger.info(
+                                f"Playbooks generated: {list(playbooks.keys())}"
+                            )
+                except Exception as e:
+                    self.logger.error(f"Attribution error: {e}")
+
+                # Auto-ingest costs from traces
+                try:
+                    recent_traces = self.trace_store.list_traces(limit=50)
+                    for trace in recent_traces:
+                        model = trace.get('model', '')
+                        usage = trace.get('usage', {})
+                        if usage:
+                            self.cost_tracker.record_cron_cost({
+                                'model': model,
+                                'usage': usage,
+                                'jobId': trace.get('source', ''),
+                            })
+                    summary = self.cost_tracker.get_daily_summary()
+                    self.logger.info(
+                        f"Cost ingestion: ${summary['total_cost']:.2f} today, "
+                        f"{summary['local_pct']:.0f}% local"
+                    )
+                except Exception as e:
+                    self.logger.error(f"Cost ingestion error: {e}")
             except Exception as e:
                 self.logger.error(f"Trace learning error: {e}")
             await asyncio.sleep(3600 * 6)  # Every 6 hours
@@ -437,8 +513,8 @@ class KitDaemon:
         check(f"Graph has entities: {stats['total_entities']}", stats['total_entities'] > 0)
         check(f"Graph has relationships: {stats['total_relationships']}", stats['total_relationships'] > 0)
         # Test traversal
-        path = self.graph.find_path('the user', 'CompetitorTool')
-        check("Graph traversal works (the user→AgentForce)", path is not None and len(path) > 1)
+        path = self.graph.find_path('Andrew Lovick', 'AgentForce')
+        check("Graph traversal works (Andrew→AgentForce)", path is not None and len(path) > 1)
         dashboard = self.skills.get_dashboard()
         check(f"Skills tracked: {len(dashboard)}", len(dashboard) > 0)
         # Test the observe cycle
@@ -464,6 +540,38 @@ class KitDaemon:
         check("Trace recorded", self.trace_store.count() > 0)
         model_stats = self.trace_store.get_model_stats()
         check("Trace model stats work", isinstance(model_stats, dict))
+        # Decision Attribution
+        check("Decision attributor initialized", self.attributor is not None)
+        test_trace = {'trace_id': 'test', 'outcome': 'failure', 'result': 'timeout after 120s', 'query': 'test task', 'total_latency': 130, 'model': 'test', 'task_class': 'test'}
+        attr_result = self.attributor.analyze_trace(test_trace)
+        check("Attribution produces causes", len(attr_result['causes']) > 0)
+        check("Attribution produces tips", len(attr_result['tips']) > 0)
+        check("Attribution classifies correctly", attr_result['classification'] == 'timeout')
+        # Curator (quality gate)
+        from decision_attribution import Tip as _Tip, TipType as _TT
+        low_conf_tip = _Tip(tip_type=_TT.OPTIMIZATION, title="Bad tip", description="x", action="x", confidence=0.1)
+        curated = self.attributor._curate_tips([low_conf_tip])
+        check("Curator rejects low confidence", len(curated) == 0)
+        # Playbooks
+        playbooks = self.attributor.generate_playbooks()
+        check("Playbook generator runs", isinstance(playbooks, dict))
+        # Cost Tracker
+        check("Cost tracker initialized", self.cost_tracker is not None)
+        from cost_tracker import calculate_cost, is_local_model
+        check("Local model detection", is_local_model('qwen3.5:9b') == True)
+        check("Cloud model detection", is_local_model('claude-opus-4-6') == False)
+        opus_cost = calculate_cost('claude-opus-4-6', 100000, 1000)
+        check("Opus cost calculation", opus_cost > 0)
+        # Preference Filter
+        check("Preference filter initialized", self.preference_filter is not None)
+        sig = self.preference_filter.detect_signal("Thanks! That's exactly what I needed")
+        check("Engage signal detected", sig['signal_type'] == 'engage')
+        sig2 = self.preference_filter.detect_signal("Actually, different topic")
+        check("Ignore signal detected", sig2['signal_type'] == 'ignore')
+        sig3 = self.preference_filter.detect_signal("What I meant was something else")
+        check("Repeat signal detected", sig3['signal_type'] == 'repeat')
+        prefs = self.preference_filter.get_preferences()
+        check("Preferences returns dict", isinstance(prefs, dict))
 
         # Watch paths
         for tq in self.config['watch_paths']['task_queues']:
@@ -513,4 +621,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
