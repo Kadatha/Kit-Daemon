@@ -80,6 +80,9 @@ class KitDaemon:
         from decision_attribution import DecisionAttributor
         from cost_tracker import CostTracker
         from preference_filter import PreferenceFilter
+        from self_model import SelfModel
+        from curiosity_engine import CuriosityEngine
+        from goal_horizon import GoalHorizon
 
         self.state = StateManager(self.config['state_file'])
         self.comms = CommsManager(self.config, self.state)
@@ -115,6 +118,9 @@ class KitDaemon:
         self.attributor = DecisionAttributor(self.config)
         self.cost_tracker = CostTracker(self.config)
         self.preference_filter = PreferenceFilter(self.config)
+        self.self_model = SelfModel(self.config, self.state, self.trace_store)
+        self.curiosity = CuriosityEngine(self.config, self.state)
+        self.goal_horizon = GoalHorizon(self.config, self.state)
         self.generate_dashboard = generate_dashboard
         self.workflow_engine = WorkflowEngine(
             self.config, self.state, self.comms, self.skills
@@ -379,6 +385,51 @@ class KitDaemon:
                 self.logger.error(f"Trace learning error: {e}")
             await asyncio.sleep(3600 * 6)  # Every 6 hours
 
+    async def self_model_loop(self):
+        """Update self-model from trace data weekly."""
+        # Wait for traces to accumulate
+        await asyncio.sleep(3600 * 2)
+        while self.running:
+            try:
+                stats = self.self_model.update_from_traces()
+                if stats:
+                    self.logger.info(
+                        f"Self-model: updated {len(stats)} task categories from traces"
+                    )
+                # Weekly reflection (check if 7+ days since last)
+                last_reflection = self.state.get('self_model_last_reflection')
+                if last_reflection:
+                    last_dt = datetime.fromisoformat(last_reflection)
+                    days_since = (datetime.now() - last_dt).days
+                else:
+                    days_since = 999
+                if days_since >= 7:
+                    result = self.self_model.generate_weekly_reflection()
+                    if result:
+                        self.state.set('self_model_last_reflection', datetime.now().isoformat())
+                        self.logger.info("Self-model: weekly reflection completed")
+            except Exception as e:
+                self.logger.error(f"Self-model loop error: {e}")
+            await asyncio.sleep(3600 * 12)  # Every 12 hours
+
+    async def goal_horizon_loop(self):
+        """Track goal progress and generate summaries weekly."""
+        await asyncio.sleep(3600)
+        while self.running:
+            try:
+                summary = self.goal_horizon.generate_progress_summary()
+                active = summary.get('active_count', 0)
+                critical = len(summary.get('critical_goals', []))
+                blocked = len(summary.get('blocked_goals', []))
+                completions = len(summary.get('recent_completions', []))
+                self.logger.info(
+                    f"Goal horizon: {active} active, {critical} critical, "
+                    f"{blocked} blocked, {completions} aligned completions"
+                )
+            except Exception as e:
+                self.logger.error(f"Goal horizon loop error: {e}")
+            await asyncio.sleep(3600 * 12)  # Every 12 hours
+
     async def metrics_loop(self):
         """Save metrics periodically."""
         while self.running:
@@ -416,6 +467,8 @@ class KitDaemon:
             asyncio.create_task(self.intelligence_loop()),
             asyncio.create_task(self.ambient_analysis_loop()),
             asyncio.create_task(self.trace_learning_loop()),
+            asyncio.create_task(self.self_model_loop()),
+            asyncio.create_task(self.goal_horizon_loop()),
             asyncio.create_task(self.metrics_loop()),
         ]
 
@@ -572,6 +625,43 @@ class KitDaemon:
         check("Repeat signal detected", sig3['signal_type'] == 'repeat')
         prefs = self.preference_filter.get_preferences()
         check("Preferences returns dict", isinstance(prefs, dict))
+
+        # Self-Model
+        check("Self-model initialized", self.self_model is not None)
+        sm_summary = self.self_model.get_summary()
+        check("Self-model loaded", sm_summary['loaded'])
+        check(f"Self-model capabilities: {sm_summary['capabilities_count']}", sm_summary['capabilities_count'] > 0)
+        cap = self.self_model.query_capability('file operations')
+        check("Self-model capability query works", cap['found'])
+        cap_unknown = self.self_model.query_capability('quantum entanglement')
+        check("Self-model unknown query returns not found", not cap_unknown['found'])
+
+        # Curiosity Engine
+        check("Curiosity engine initialized", self.curiosity is not None)
+        from curiosity_engine import ResponseMonitor
+        monitor = ResponseMonitor()
+        sig_confident = monitor.analyze_response("The file is located at /tmp/test.txt and contains 42 lines.")
+        check("Confident response scores high", sig_confident.confidence >= 0.8)
+        sig_uncertain = monitor.analyze_response(
+            "I don't know, I'm not sure, possibly it might be something else",
+            "What is the capital of Atlantis?"
+        )
+        check("Uncertain response scores low", sig_uncertain.confidence < 0.5)
+        check("Uncertain response flags research", sig_uncertain.should_research or sig_uncertain.hedging_count > 0)
+        curiosity_stats = self.curiosity.get_stats()
+        check("Curiosity stats returns dict", isinstance(curiosity_stats, dict))
+
+        # Goal Horizon
+        check("Goal horizon initialized", self.goal_horizon is not None)
+        gh_summary = self.goal_horizon.get_summary()
+        check("Goal horizon loaded", gh_summary['loaded'])
+        check(f"Goals found: {gh_summary['total_goals']}", gh_summary['total_goals'] > 0)
+        critical = self.goal_horizon.get_critical_goals()
+        check(f"Critical goals detected: {len(critical)}", len(critical) > 0)
+        score = self.goal_horizon.prioritize_task("Prospectus benchmark voice parsing improvement")
+        check("Goal-aligned task gets positive score", score > 0)
+        score_unrelated = self.goal_horizon.prioritize_task("Random unrelated gibberish xyz")
+        check("Unrelated task gets zero score", score_unrelated == 0)
 
         # Watch paths
         for tq in self.config['watch_paths']['task_queues']:

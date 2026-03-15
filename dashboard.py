@@ -89,6 +89,40 @@ TEMPLATE = """<!DOCTYPE html>
   .projects li { padding: 8px 0; border-bottom: 1px solid #1a2332; }
   .projects .name { color: #e8f0f8; font-weight: 500; }
   .projects .detail { color: #5a6e82; font-size: 12px; }
+  .module-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+    gap: 6px;
+  }
+  .module-chip {
+    padding: 5px 8px; border-radius: 6px; font-size: 11px;
+    background: #0d3320; border: 1px solid #1a5c3a; color: #00ff88;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .module-chip.new {
+    background: #0d2333; border: 1px solid #0066cc; color: #00d4ff;
+    animation: pulse-new 2s ease-in-out infinite;
+  }
+  @keyframes pulse-new { 0%,100%{opacity:1} 50%{opacity:0.7} }
+  .cap-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 0; border-bottom: 1px solid #1a2332;
+  }
+  .cap-row:last-child { border-bottom: none; }
+  .cap-name { color: #c8d6e5; font-size: 13px; }
+  .cap-badge {
+    padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  }
+  .cap-badge.active { background: #0d3320; color: #00ff88; }
+  .cap-badge.deployed { background: #1a2d0d; color: #88ff00; }
+  .cap-badge.pending { background: #2d2612; color: #ffaa00; }
+  .cost-day {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px solid #1a2332; font-size: 13px;
+  }
+  .cost-day:last-child { border-bottom: none; }
+  .cost-day .date { color: #8899aa; }
+  .cost-day .amount { color: #e8f0f8; font-weight: 500; }
+  .cost-day .trend { font-size: 16px; }
 </style>
 </head>
 <body>
@@ -152,6 +186,24 @@ TEMPLATE = """<!DOCTYPE html>
   <div class="card">
     <h2>Active Projects</h2>
     {projects}
+  </div>
+
+  <!-- Daemon Modules -->
+  <div class="card" style="grid-column: 1 / -1">
+    <h2>Daemon Modules ({module_count} active)</h2>
+    {module_grid}
+  </div>
+
+  <!-- New Capabilities -->
+  <div class="card">
+    <h2>New Capabilities</h2>
+    {capabilities}
+  </div>
+
+  <!-- Actual Cost Tracking -->
+  <div class="card">
+    <h2>Actual Costs (Last 3 Days)</h2>
+    {actual_costs}
   </div>
 </div>
 
@@ -504,6 +556,101 @@ def generate_dashboard(config):
     except Exception as e:
         cost_html = f'<div style="color:#5a6e82;padding:8px">Cost tracking initializing... ({e})</div>'
 
+    # Daemon Modules
+    all_modules = [
+        'daemon', 'state', 'comms', 'system', 'health', 'watchers',
+        'anticipation', 'learning', 'skill_evolution', 'workflows',
+        'ambient', 'dashboard', 'orchestrator', 'intelligence',
+        'memory_graph', 'multimodal', 'trace_learning', 'benchmark',
+        'cost_tracker', 'decision_attribution', 'preference_filter',
+        'voice', 'self_model', 'curiosity_engine', 'goal_horizon',
+    ]
+    new_modules = {'self_model', 'curiosity_engine', 'goal_horizon'}
+    module_html = '<div class="module-grid">\n'
+    active_count = 0
+    for mod in all_modules:
+        mod_path = os.path.join(daemon_home, f'{mod}.py')
+        exists = os.path.exists(mod_path)
+        if exists:
+            active_count += 1
+        is_new = mod in new_modules
+        chip_class = 'module-chip new' if (exists and is_new) else 'module-chip'
+        status_label = 'ACTIVE' if exists else 'MISSING'
+        dot = '●' if exists else '○'
+        if not exists:
+            chip_class = 'module-chip" style="background:#2d1215;border-color:#5c1a1a;color:#ff4444'
+        new_tag = ' ✦NEW' if is_new and exists else ''
+        module_html += f'<div class="{chip_class}"><span>{dot} {mod}</span><span>{status_label}{new_tag}</span></div>\n'
+    module_html += '</div>\n'
+
+    # New Capabilities
+    cap_checks = {
+        'TRT (Recursive Thinking)': 'trt_engine.py',
+        'Mini-Swarm': 'swarm_orchestrator.py',
+        'Complexity Tagging': 'complexity_tagger.py',
+    }
+    openclaw_src = os.path.join(os.path.dirname(daemon_home), '.openclaw', 'workspace', 'src')
+    cap_html = ''
+    for cap_name, cap_file in cap_checks.items():
+        cap_path = os.path.join(openclaw_src, cap_file)
+        if os.path.exists(cap_path):
+            status = 'DEPLOYED'
+            badge_class = 'deployed'
+        else:
+            status = 'PENDING'
+            badge_class = 'pending'
+        cap_html += f'<div class="cap-row"><span class="cap-name">{cap_name}</span><span class="cap-badge {badge_class}">{status}</span></div>\n'
+
+    # Capabilities that live in daemon modules (already checked above)
+    daemon_caps = {
+        'Curiosity Engine': 'curiosity_engine',
+        'Self-Model': 'self_model',
+        'Goal Horizon': 'goal_horizon',
+    }
+    for cap_name, mod_name in daemon_caps.items():
+        mod_exists = os.path.exists(os.path.join(daemon_home, f'{mod_name}.py'))
+        status = 'ACTIVE' if mod_exists else 'PENDING'
+        badge_class = 'active' if mod_exists else 'pending'
+        cap_html += f'<div class="cap-row"><span class="cap-name">{cap_name}</span><span class="cap-badge {badge_class}">{status}</span></div>\n'
+
+    # Actual Cost Tracking (from costs_actual.jsonl)
+    actual_cost_html = ''
+    costs_file = os.path.join(daemon_home, 'costs', 'costs_actual.jsonl')
+    if os.path.exists(costs_file):
+        try:
+            with open(costs_file, 'r', encoding='utf-8') as f:
+                cost_entries = [json.loads(line) for line in f if line.strip()]
+            # Last 3 days
+            recent = cost_entries[-3:] if len(cost_entries) >= 3 else cost_entries
+            for i, entry in enumerate(recent):
+                date = entry.get('date', '?')
+                total = entry.get('total', 0)
+                opus = entry.get('opus', 0)
+                sonnet = entry.get('sonnet', 0)
+                # Trend arrow compared to previous
+                if i > 0:
+                    prev_total = recent[i - 1].get('total', 0)
+                    if total > prev_total * 1.1:
+                        trend = '<span class="trend" style="color:#ff4444">↑</span>'
+                    elif total < prev_total * 0.9:
+                        trend = '<span class="trend" style="color:#00ff88">↓</span>'
+                    else:
+                        trend = '<span class="trend" style="color:#8899aa">→</span>'
+                else:
+                    trend = ''
+                total_css = 'good' if total < 100 else 'warn' if total < 200 else 'bad'
+                actual_cost_html += f'<div class="cost-day"><span class="date">{date}</span>'
+                actual_cost_html += f'<span style="color:#5a6e82;font-size:11px">O:${opus:.0f} S:${sonnet:.0f}</span>'
+                actual_cost_html += f'<span class="amount {total_css}">${total:.2f}</span>{trend}</div>\n'
+
+            # 3-day total
+            three_day_total = sum(e.get('total', 0) for e in recent)
+            actual_cost_html += f'<div class="metric" style="margin-top:8px"><span class="label">3-Day Total</span><span class="value warn">${three_day_total:.2f}</span></div>\n'
+        except (json.JSONDecodeError, IOError):
+            actual_cost_html = '<div style="color:#5a6e82;padding:8px">Error reading cost data</div>'
+    else:
+        actual_cost_html = '<div style="color:#5a6e82;padding:8px">No actual cost data yet</div>'
+
     # Projects
     proj_html = '<ul class="projects">'
     projects = [
@@ -526,7 +673,8 @@ def generate_dashboard(config):
     for key in ['timestamp', 'overall_status', 'overall_status_class',
                 'system_metrics', 'skill_rows', 'task_metrics',
                 'daemon_metrics', 'workflow_items', 'recommendations',
-                'benchmark_data', 'cost_data', 'projects']:
+                'benchmark_data', 'cost_data', 'projects',
+                'module_count', 'module_grid', 'capabilities', 'actual_costs']:
         safe_template = safe_template.replace('{{' + key + '}}', '{' + key + '}')
 
     html = safe_template.format(
@@ -542,6 +690,10 @@ def generate_dashboard(config):
         benchmark_data=bench_html,
         cost_data=cost_html,
         projects=proj_html,
+        module_count=active_count,
+        module_grid=module_html,
+        capabilities=cap_html,
+        actual_costs=actual_cost_html,
     )
 
     # Write dashboard
