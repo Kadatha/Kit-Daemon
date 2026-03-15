@@ -364,12 +364,14 @@ def generate_dashboard(config):
             unique_recs.append(r)
     recs = unique_recs[:8]
 
+    rec_html += '<div style="max-height:250px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a3442 #0d1117">\n'
     if recs:
         for r in recs:
             pri = r.get('priority', 'low')
             rec_html += f'<div class="rec {pri}">{r.get("insight", "")}<div class="action">→ {r.get("action", "")}</div></div>\n'
     else:
-        rec_html = '<div style="color:#5a6e82;padding:8px">No recommendations yet. Collecting data...</div>'
+        rec_html += '<div style="color:#5a6e82;padding:8px">No recommendations yet. Collecting data...</div>'
+    rec_html += '</div>\n'
 
     # Benchmark — update progress before rendering
     try:
