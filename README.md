@@ -323,7 +323,7 @@ Future versions will include formal security audits (e.g., Bandit for Python vul
 
 ### Get Involved
 
-**Repo (MIT License):** [github.com/YOUR_GITHUB_USERNAME/kit-daemon](https://github.com/YOUR_GITHUB_USERNAME/kit-daemon)
+**Repo (MIT License):** [github.com/Kadatha/kit-daemon](https://github.com/Kadatha/kit-daemon)
 
 Feedback, forks, and PRs welcome. If you're building proactive agents on personal hardware, let's talk.
 
