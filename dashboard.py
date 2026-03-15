@@ -236,42 +236,81 @@ def generate_dashboard(config):
     # Summary line
     task_html += f'<div class="metric" style="margin-bottom:8px"><span class="label"><strong>Total</strong></span><span class="value"><strong>{total_done}✅ {total_pending}⏳</strong></span></div>\n'
 
-    # Scrollable task list — pending first, sorted by priority
+    # Group tasks by project
     priority_order = {'URGENT': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'DONE': 9}
-    pending_tasks = [t for t in all_tasks if t['status'] == 'pending']
-    done_tasks = [t for t in all_tasks if t['status'] == 'done']
-    pending_tasks.sort(key=lambda t: priority_order.get(t['priority'], 5))
 
-    task_html += '<div style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a3442 #0d1117">\n'
+    # Determine which project the worker is currently focused on
+    # Read worker-status.md or use "Kit Self-Improvement" as default
+    active_project = 'Kit Self-Improvement'
+    worker_status_path = os.path.join(workspace, 'scratch', 'worker-status.md')
+    if os.path.exists(worker_status_path):
+        try:
+            with open(worker_status_path, 'r', encoding='utf-8') as f:
+                ws = f.read()
+            if 'Feather' in ws:
+                active_project = 'Feather Trading'
+            elif 'Memory Harness' in ws or 'Agent Memory' in ws or 'agent-research' in ws:
+                active_project = 'Memory Harness'
+            elif 'Prospectus' in ws:
+                active_project = 'Prospectus Benchmark'
+        except IOError:
+            pass
 
-    # Pending tasks
-    for i, t in enumerate(pending_tasks):
-        pri = t['priority']
-        pri_css = '#ff4444' if pri == 'URGENT' else '#ffaa00' if pri == 'HIGH' else '#8899aa' if pri == 'MEDIUM' else '#5a6e82'
-        arrow = '▶ ' if i == 0 else '  '
-        bg = 'background:#1a2332;' if i == 0 else ''
-        # Truncate task text for display
-        display = t['text'][:80]
+    # Build per-project sections
+    projects_in_order = ['Kit Self-Improvement', 'Feather Trading', 'Memory Harness', 'Prospectus Benchmark']
+    tasks_by_project = {}
+    for t in all_tasks:
         proj = t['project']
-        task_html += f'<div style="padding:4px 6px;border-bottom:1px solid #1a2332;font-size:12px;{bg}">'
-        task_html += f'<span style="color:{pri_css};font-weight:600;width:50px;display:inline-block">{arrow}{pri}</span> '
-        task_html += f'<span style="color:#c8d6e5">{display}</span> '
-        task_html += f'<span style="color:#3a4a5a;font-size:10px">[{proj}]</span>'
-        task_html += '</div>\n'
+        if proj not in tasks_by_project:
+            tasks_by_project[proj] = {'pending': [], 'done': []}
+        if t['status'] == 'pending':
+            tasks_by_project[proj]['pending'].append(t)
+        else:
+            tasks_by_project[proj]['done'].append(t)
 
-    # Divider
-    if done_tasks:
-        task_html += f'<div style="padding:6px;color:#5a6e82;font-size:11px;border-bottom:1px solid #1a2332">── Completed ({len(done_tasks)}) ──</div>\n'
+    task_html += '<div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a3442 #0d1117">\n'
 
-    # Done tasks (last 5 only to keep it clean)
-    for t in done_tasks[-5:]:
-        display = t['text'][:70]
-        proj = t['project']
-        task_html += f'<div style="padding:3px 6px;border-bottom:1px solid #0d1117;font-size:11px;color:#3a5a3a">'
-        task_html += f'<span style="width:50px;display:inline-block">  ✅</span> '
-        task_html += f'<span>{display}</span> '
-        task_html += f'<span style="color:#2a3a2a;font-size:10px">[{proj}]</span>'
-        task_html += '</div>\n'
+    for proj_name in projects_in_order:
+        if proj_name not in tasks_by_project:
+            continue
+        proj_data = tasks_by_project[proj_name]
+        pending = proj_data['pending']
+        done = proj_data['done']
+
+        if not pending and not done:
+            continue
+
+        pending.sort(key=lambda t: priority_order.get(t['priority'], 5))
+
+        # Project header
+        is_active = proj_name == active_project
+        active_badge = ' <span style="color:#00ff88;font-size:10px">⚡ ACTIVE</span>' if is_active else ''
+        p_done = len(done)
+        p_pending = len(pending)
+        task_html += f'<div style="padding:6px;color:#00d4ff;font-size:13px;font-weight:600;border-bottom:1px solid #2a3442;margin-top:4px">{proj_name}{active_badge} <span style="color:#5a6e82;font-weight:400;font-size:11px">({p_done}✅ {p_pending}⏳)</span></div>\n'
+
+        # Pending tasks for this project
+        for i, t in enumerate(pending):
+            pri = t['priority']
+            pri_css = '#ff4444' if pri == 'URGENT' else '#ffaa00' if pri == 'HIGH' else '#8899aa' if pri == 'MEDIUM' else '#5a6e82'
+            # Arrow only on the first pending task of the ACTIVE project
+            is_next = is_active and i == 0
+            arrow = '▶ ' if is_next else '  '
+            bg = 'background:#1a2332;' if is_next else ''
+            display = t['text'][:85]
+            task_html += f'<div style="padding:3px 6px 3px 16px;border-bottom:1px solid #0d1117;font-size:12px;{bg}">'
+            task_html += f'<span style="color:{pri_css};font-weight:600;width:55px;display:inline-block">{arrow}{pri}</span> '
+            task_html += f'<span style="color:#c8d6e5">{display}</span>'
+            task_html += '</div>\n'
+
+        # Done tasks for this project (last 3)
+        if done:
+            for t in done[-3:]:
+                display = t['text'][:75]
+                task_html += f'<div style="padding:2px 6px 2px 16px;border-bottom:1px solid #0d1117;font-size:11px;color:#3a5a3a">'
+                task_html += f'<span style="width:55px;display:inline-block">  ✅</span> '
+                task_html += f'<span>{display}</span>'
+                task_html += '</div>\n'
 
     task_html += '</div>\n'
 
