@@ -248,11 +248,11 @@ def generate_dashboard(config):
         try:
             with open(worker_status_path, 'r', encoding='utf-8') as f:
                 ws = f.read()
-            if 'Feather' in ws:
+            if 'TradingProject' in ws:
                 active_project = 'Feather Trading'
             elif 'Memory Harness' in ws or 'Agent Memory' in ws or 'agent-research' in ws:
                 active_project = 'Memory Harness'
-            elif 'Prospectus' in ws:
+            elif 'UserProject' in ws:
                 active_project = 'Prospectus Benchmark'
         except IOError:
             pass

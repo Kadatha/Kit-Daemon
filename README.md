@@ -294,10 +294,10 @@ Future versions will include formal security audits (e.g., Bandit for Python vul
 
 ### Get Involved
 
-**Repo (MIT License):** [github.com/Kadatha/kit-daemon](https://github.com/Kadatha/kit-daemon)
+**Repo (MIT License):** [github.com/YOUR_GITHUB_USERNAME/kit-daemon](https://github.com/YOUR_GITHUB_USERNAME/kit-daemon)
 
 Feedback, forks, and PRs welcome. If you're building proactive agents on personal hardware, let's talk.
 
-*Built by Andrew Lovick and Kit 🦊 — March 2026*
+*Built by the user and Kit 🦊 — March 2026*
 
 *"Not just agents with skills, but agents with skills that improve over time — running on hardware you own, learning from data that never leaves your machine."*

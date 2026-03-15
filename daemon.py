@@ -513,7 +513,7 @@ class KitDaemon:
         check(f"Graph has entities: {stats['total_entities']}", stats['total_entities'] > 0)
         check(f"Graph has relationships: {stats['total_relationships']}", stats['total_relationships'] > 0)
         # Test traversal
-        path = self.graph.find_path('Andrew Lovick', 'AgentForce')
+        path = self.graph.find_path('the user', 'CompetitorTool')
         check("Graph traversal works (Andrew→AgentForce)", path is not None and len(path) > 1)
         dashboard = self.skills.get_dashboard()
         check(f"Skills tracked: {len(dashboard)}", len(dashboard) > 0)
