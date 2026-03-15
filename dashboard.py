@@ -194,23 +194,86 @@ def generate_dashboard(config):
             <span class="skill-rate">{pct}%</span>
         </div>\n'''
 
-    # Task queues
+    # Task queues — scrollable live view
     task_html = ""
     total_done = 0
     total_pending = 0
+    all_tasks = []
+
+    queue_labels = {
+        'workspace': 'Kit Self-Improvement',
+        'feather': 'Feather Trading',
+        'agent-research': 'Memory Harness',
+        'prospectus_benchmark': 'Prospectus Benchmark',
+    }
+
     for tq_path in config.get('watch_paths', {}).get('task_queues', []):
         try:
             with open(tq_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            done = content.count('- [x]')
-            pending = content.count('- [ ]')
-            total_done += done
-            total_pending += pending
+                lines = f.readlines()
             project = os.path.basename(os.path.dirname(tq_path))
-            task_html += f'<div class="metric"><span class="label">{project}</span><span class="value">{done}✓ {pending}⏳</span></div>\n'
+            label = queue_labels.get(project, project)
+            for line in lines:
+                line = line.strip()
+                if line.startswith('- [x]'):
+                    total_done += 1
+                    task_text = line[6:].strip()
+                    # Extract priority
+                    pri = 'DONE'
+                    all_tasks.append({'status': 'done', 'priority': pri, 'text': task_text, 'project': label})
+                elif line.startswith('- [ ]'):
+                    total_pending += 1
+                    task_text = line[6:].strip()
+                    pri = 'MEDIUM'
+                    for p in ['URGENT', 'HIGH', 'MEDIUM', 'LOW']:
+                        if task_text.startswith(p):
+                            pri = p
+                            break
+                    all_tasks.append({'status': 'pending', 'priority': pri, 'text': task_text, 'project': label})
         except FileNotFoundError:
             pass
-    task_html += f'<div class="metric"><span class="label"><strong>Total</strong></span><span class="value"><strong>{total_done}✓ {total_pending}⏳</strong></span></div>\n'
+
+    # Summary line
+    task_html += f'<div class="metric" style="margin-bottom:8px"><span class="label"><strong>Total</strong></span><span class="value"><strong>{total_done}✅ {total_pending}⏳</strong></span></div>\n'
+
+    # Scrollable task list — pending first, sorted by priority
+    priority_order = {'URGENT': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'DONE': 9}
+    pending_tasks = [t for t in all_tasks if t['status'] == 'pending']
+    done_tasks = [t for t in all_tasks if t['status'] == 'done']
+    pending_tasks.sort(key=lambda t: priority_order.get(t['priority'], 5))
+
+    task_html += '<div style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a3442 #0d1117">\n'
+
+    # Pending tasks
+    for i, t in enumerate(pending_tasks):
+        pri = t['priority']
+        pri_css = '#ff4444' if pri == 'URGENT' else '#ffaa00' if pri == 'HIGH' else '#8899aa' if pri == 'MEDIUM' else '#5a6e82'
+        arrow = '▶ ' if i == 0 else '  '
+        bg = 'background:#1a2332;' if i == 0 else ''
+        # Truncate task text for display
+        display = t['text'][:80]
+        proj = t['project']
+        task_html += f'<div style="padding:4px 6px;border-bottom:1px solid #1a2332;font-size:12px;{bg}">'
+        task_html += f'<span style="color:{pri_css};font-weight:600;width:50px;display:inline-block">{arrow}{pri}</span> '
+        task_html += f'<span style="color:#c8d6e5">{display}</span> '
+        task_html += f'<span style="color:#3a4a5a;font-size:10px">[{proj}]</span>'
+        task_html += '</div>\n'
+
+    # Divider
+    if done_tasks:
+        task_html += f'<div style="padding:6px;color:#5a6e82;font-size:11px;border-bottom:1px solid #1a2332">── Completed ({len(done_tasks)}) ──</div>\n'
+
+    # Done tasks (last 5 only to keep it clean)
+    for t in done_tasks[-5:]:
+        display = t['text'][:70]
+        proj = t['project']
+        task_html += f'<div style="padding:3px 6px;border-bottom:1px solid #0d1117;font-size:11px;color:#3a5a3a">'
+        task_html += f'<span style="width:50px;display:inline-block">  ✅</span> '
+        task_html += f'<span>{display}</span> '
+        task_html += f'<span style="color:#2a3a2a;font-size:10px">[{proj}]</span>'
+        task_html += '</div>\n'
+
+    task_html += '</div>\n'
 
     # Daemon stats
     daemon_html = ""
